@@ -4,11 +4,5 @@ pandas>=2.1
 opencv-python-headless>=4.9
 Pillow>=10.0
 plotly>=5.20
-streamlit-image-coordinates>=0.1.9
 pytesseract>=0.3.13
-import os
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-if os.path.exists(TESSERACT_PATH):
-    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
-
+streamlit-image-coordinates>=0.1.9
