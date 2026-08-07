@@ -1,8 +1,8 @@
-streamlit>=1.40
+streamlit==1.53.1
 numpy>=1.26
 pandas>=2.1
 opencv-python-headless>=4.9
 Pillow>=10.0
 plotly>=5.20
 pytesseract>=0.3.13
-streamlit-image-coordinates>=0.1.9
+streamlit-image-coordinates==0.4.0
