@@ -752,3 +752,127 @@ st.caption(
     "m/z values come from OCR inside user-selected boxes or manual correction. "
     "The x-axis calibration is used only to locate the corresponding stick and validate spatial consistency."
 )
+
+
+# =============================================================================
+# 5. MassQL query export
+# =============================================================================
+
+with st.expander("5. Convert selected peaks to a MassQL query", expanded=False):
+    st.caption(
+        "Generate a single MassQL query from all peaks currently marked as `Use` "
+        "in the OCR + peak intensity table."
+    )
+
+    mq1, mq2, mq3 = st.columns(3)
+
+    massql_polarity = mq1.selectbox(
+        "Polarity",
+        options=["POSITIVE", "NEGATIVE"],
+        index=0,
+        key="massql_polarity",
+    )
+
+    precursor_ppm = mq2.number_input(
+        "MS2 precursor tolerance (ppm)",
+        min_value=0.1,
+        value=20.0,
+        step=1.0,
+        key="massql_precursor_ppm",
+    )
+
+    product_ppm = mq3.number_input(
+        "MS2 product tolerance (ppm)",
+        min_value=0.1,
+        value=20.0,
+        step=1.0,
+        key="massql_product_ppm",
+    )
+
+    intensity_percent = st.number_input(
+        "Minimum fragment intensity — INTENSITYPERCENT (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        step=1.0,
+        key="massql_intensity_percent",
+    )
+
+    massql_selected = edited[
+        edited["use"].fillna(False)
+    ].copy()
+
+    massql_selected["mz"] = pd.to_numeric(
+        massql_selected["mz"],
+        errors="coerce",
+    )
+
+    massql_selected = (
+        massql_selected
+        .dropna(subset=["mz"])
+        .sort_values("mz")
+    )
+
+    fragment_masses = [
+        f"{float(mz):.6f}"
+        for mz in massql_selected["mz"].tolist()
+    ]
+
+    if fragment_masses:
+        fragments_or = " OR ".join(fragment_masses)
+
+        conditions = [
+            f"POLARITY={massql_polarity}"
+        ]
+
+        if pepmass is not None:
+            conditions.append(
+                f"MS2PREC={float(pepmass):.6f}:"
+                f"TOLERANCEPPM={float(precursor_ppm):g}"
+            )
+        else:
+            st.info(
+                "No PEPMASS was entered in Section 3. "
+                "The MassQL query will therefore omit MS2PREC."
+            )
+
+        conditions.append(
+            f"MS2PROD=({fragments_or}):"
+            f"TOLERANCEPPM={float(product_ppm):g}:"
+            f"INTENSITYPERCENT={float(intensity_percent):g}"
+        )
+
+        massql_query = (
+            "QUERY scaninfo(MS2DATA) WHERE "
+            + " AND ".join(conditions)
+        )
+
+        massql_title = (
+            compound_name.strip()
+            if compound_name.strip()
+            else spectrum_id.strip()
+        )
+
+        massql_text = (
+            f"# {massql_title}\n"
+            f"{massql_query}"
+        )
+
+        st.code(
+            massql_text,
+            language="text",
+        )
+
+        st.download_button(
+            "Download MassQL query",
+            data=massql_text.encode("utf-8"),
+            file_name=f"{Path(uploaded.name).stem}_massql.txt",
+            mime="text/plain",
+            key="download_massql_query",
+        )
+
+    else:
+        st.warning(
+            "No valid peaks are currently marked as `Use` in the table."
+        )
+
