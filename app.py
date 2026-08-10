@@ -13,7 +13,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 
 st.set_page_config(page_title="Spectrum Image → MGF", page_icon="📈", layout="wide")
 st.title("Spectrum Image → MGF")
-st.caption("Select labeled peaks with boxes, read m/z by OCR, estimate relative intensity, export MGF, and validate.")
+st.caption("Select horizontal or vertical m/z labels with boxes, read them by OCR, estimate relative intensity, export MGF, and validate.")
 
 DECIMAL_RE = re.compile(r"(\d{2,5}[.,]\d{2,8})")
 
@@ -157,33 +157,110 @@ def detect_global_base_peak(gray, baseline, ticks, threshold=245):
     return float(base_x), float(base_height), left, right
 
 def ocr_box(gray, box):
+    """
+    OCR one user-selected m/z label box.
+
+    The label may be horizontal or rotated 90 degrees. The function tests:
+      - original orientation
+      - 90° clockwise
+      - 90° counter-clockwise
+
+    For each orientation it also tests grayscale and Otsu-thresholded versions.
+    The valid decimal reading with the highest OCR confidence is returned.
+    """
     x1,y1,x2,y2=[int(v) for v in box]
-    crop=gray[max(0,y1):min(gray.shape[0],y2),max(0,x1):min(gray.shape[1],x2)]
-    if crop.size==0: return None,"",0
+    crop=gray[
+        max(0,y1):min(gray.shape[0],y2),
+        max(0,x1):min(gray.shape[1],x2)
+    ]
+
+    if crop.size==0:
+        return None,"",0,""
+
+    orientations = [
+        ("horizontal", crop),
+        ("90° clockwise", cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE)),
+        ("90° counter-clockwise", cv2.rotate(crop, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+    ]
+
     outs=[]
-    for mode in ["gray","otsu"]:
-        img=crop.copy()
-        if mode=="otsu":
-            img=cv2.threshold(img,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]
-        img=cv2.resize(img,None,fx=4,fy=4,interpolation=cv2.INTER_CUBIC)
-        d=pytesseract.image_to_data(
-            img,
-            config="--psm 7 -c tessedit_char_whitelist=0123456789.",
-            output_type=pytesseract.Output.DATAFRAME
-        )
-        d=d.dropna(subset=["text"])
-        for _,r in d.iterrows():
-            txt=str(r["text"]).strip()
-            m=DECIMAL_RE.search(txt)
-            if m:
-                try:
-                    val=float(m.group(1).replace(",","."))
+
+    for orientation_name, oriented in orientations:
+        for mode in ["gray","otsu"]:
+            img=oriented.copy()
+
+            if mode=="otsu":
+                img=cv2.threshold(
+                    img,0,255,
+                    cv2.THRESH_BINARY+cv2.THRESH_OTSU
+                )[1]
+
+            # Increase the cropped label substantially for OCR.
+            img=cv2.resize(
+                img,None,
+                fx=4,fy=4,
+                interpolation=cv2.INTER_CUBIC
+            )
+
+            # Try a single-line interpretation first.
+            for psm in [7, 8, 13]:
+                d=pytesseract.image_to_data(
+                    img,
+                    config=(
+                        f"--psm {psm} "
+                        "-c tessedit_char_whitelist=0123456789."
+                    ),
+                    output_type=pytesseract.Output.DATAFRAME
+                )
+
+                d=d.dropna(subset=["text"])
+
+                # Tesseract may split a value into more than one token.
+                # First inspect individual tokens, then the concatenated text.
+                token_texts=[]
+                token_confs=[]
+
+                for _,r in d.iterrows():
+                    txt=str(r["text"]).strip()
+                    if not txt:
+                        continue
+
+                    token_texts.append(txt)
+
                     conf=float(r["conf"]) if pd.notna(r["conf"]) else 0
-                    outs.append((conf,val,txt))
-                except: pass
-    if not outs: return None,"",0
+                    token_confs.append(conf)
+
+                    m=DECIMAL_RE.search(txt)
+                    if m:
+                        try:
+                            val=float(m.group(1).replace(",","."))
+                            outs.append(
+                                (conf,val,txt,orientation_name,mode,psm)
+                            )
+                        except:
+                            pass
+
+                joined="".join(token_texts).replace(" ","")
+
+                m=DECIMAL_RE.search(joined)
+                if m:
+                    try:
+                        val=float(m.group(1).replace(",","."))
+                        conf=max(token_confs) if token_confs else 0
+                        outs.append(
+                            (conf,val,joined,orientation_name,mode,psm)
+                        )
+                    except:
+                        pass
+
+    if not outs:
+        return None,"",0,""
+
+    # Highest-confidence valid reading wins.
     outs.sort(reverse=True,key=lambda z:z[0])
-    return outs[0][1],outs[0][2],outs[0][0]
+    best=outs[0]
+
+    return best[1],best[2],best[0],best[3]
 
 def draw_boxes(img, boxes, pending=None):
     """Draw boxes in the coordinate system of *img*."""
@@ -335,8 +412,8 @@ with st.expander("Axis calibration details",expanded=False):
 st.subheader("1. Select labeled peaks")
 st.write(
     "For each peak, click **two opposite corners** to draw a box around its printed m/z label. "
-    "Keep the box reasonably tight around the number. The rectangle is drawn in exactly "
-    "the same coordinate system used for your clicks."
+    "The label may be horizontal or vertical. Keep the box reasonably tight around the number; "
+    "the app automatically tests horizontal and ±90° orientations."
 )
 st.caption(
     f"Selection view: {display_w} × {display_h} px · "
@@ -415,7 +492,7 @@ for i,b_display in enumerate(st.session_state.boxes,1):
         display_to_orig_y,
     )
 
-    mz,txt,conf=ocr_box(gray,b)
+    mz,txt,conf,orientation=ocr_box(gray,b)
     if mz is None:
         rows.append({
             "use":False,
@@ -425,6 +502,7 @@ for i,b_display in enumerate(st.session_state.boxes,1):
             "intensity":np.nan,
             "ocr_text":"",
             "ocr_conf":0,
+            "ocr_orientation":"",
             "status":"Review",
             "peak_x":np.nan,
             "height_px":0,
@@ -442,6 +520,7 @@ for i,b_display in enumerate(st.session_state.boxes,1):
         "intensity":np.nan,
         "ocr_text":txt,
         "ocr_conf":conf,
+        "ocr_orientation":orientation,
         "status":status,
         "peak_x":px,
         "height_px":height,
@@ -483,6 +562,7 @@ editor_columns = [
     "box",
     "ocr_text",
     "ocr_conf",
+    "ocr_orientation",
     "height_px",
     "peak_x",
     "expected_x",
@@ -528,6 +608,11 @@ edited=st.data_editor(
             format="%.1f",
             disabled=True,
         ),
+        "ocr_orientation":st.column_config.TextColumn(
+            "OCR orientation",
+            help="Orientation that produced the accepted OCR reading.",
+            disabled=True,
+        ),
         "height_px":st.column_config.NumberColumn(
             "Measured height (px)",
             format="%.1f",
@@ -553,6 +638,7 @@ edited=st.data_editor(
         "box",
         "ocr_text",
         "ocr_conf",
+        "ocr_orientation",
         "height_px",
         "peak_x",
         "expected_x",
