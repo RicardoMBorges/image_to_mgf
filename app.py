@@ -233,6 +233,11 @@ def display_box_to_original(box, sx, sy):
         int(round(y2*sy)),
     )
 
+
+def box_id(box):
+    """Stable identifier for one user-selected box in display coordinates."""
+    return "|".join(str(int(v)) for v in box)
+
 def spectrum_fig(df,title):
     fig=go.Figure()
     for _,r in df.dropna(subset=["mz","intensity"]).iterrows():
@@ -343,11 +348,23 @@ if "boxes" not in st.session_state: st.session_state.boxes=[]
 if "pending_corner" not in st.session_state: st.session_state.pending_corner=None
 if "last_click" not in st.session_state: st.session_state.last_click=None
 
+if "peak_manual_edits" not in st.session_state:
+    st.session_state.peak_manual_edits = {}
+
 c1,c2,c3=st.columns([1,1,4])
 if c1.button("Undo last box") and st.session_state.boxes:
-    st.session_state.boxes.pop(); st.session_state.pending_corner=None; st.session_state.last_click=None; st.rerun()
+    removed = st.session_state.boxes.pop()
+    st.session_state.peak_manual_edits.pop(box_id(removed), None)
+    st.session_state.pending_corner=None
+    st.session_state.last_click=None
+    st.rerun()
+
 if c2.button("Clear all"):
-    st.session_state.boxes=[]; st.session_state.pending_corner=None; st.session_state.last_click=None; st.rerun()
+    st.session_state.boxes=[]
+    st.session_state.peak_manual_edits={}
+    st.session_state.pending_corner=None
+    st.session_state.last_click=None
+    st.rerun()
 c3.write(f"Selected boxes: **{len(st.session_state.boxes)}**")
 
 shown=draw_boxes(
@@ -389,6 +406,8 @@ st.subheader("2. OCR + peak intensity")
 
 rows=[]
 for i,b_display in enumerate(st.session_state.boxes,1):
+    this_box_id = box_id(b_display)
+
     # Convert the visually selected rectangle to source-image coordinates.
     b = display_box_to_original(
         b_display,
@@ -401,6 +420,7 @@ for i,b_display in enumerate(st.session_state.boxes,1):
         rows.append({
             "use":False,
             "box":i,
+            "_box_id":this_box_id,
             "mz":np.nan,
             "intensity":np.nan,
             "ocr_text":"",
@@ -417,6 +437,7 @@ for i,b_display in enumerate(st.session_state.boxes,1):
     rows.append({
         "use":status=="Reliable",
         "box":i,
+        "_box_id":this_box_id,
         "mz":mz,
         "intensity":np.nan,
         "ocr_text":txt,
@@ -440,6 +461,13 @@ if len(df) and base_peak_height > 0:
     )
     df["intensity"] = df["intensity"].clip(lower=0.0, upper=100.0)
 
+for idx, row in df.iterrows():
+    saved = st.session_state.peak_manual_edits.get(row["_box_id"])
+    if saved is not None:
+        df.at[idx, "use"] = saved.get("use", df.at[idx, "use"])
+        df.at[idx, "mz"] = saved.get("mz", df.at[idx, "mz"])
+        df.at[idx, "intensity"] = saved.get("intensity", df.at[idx, "intensity"])
+
 st.caption(
     "Review the OCR result before export. You can edit **m/z**, "
     "**relative intensity**, and **Use**. Diagnostic columns remain read-only."
@@ -447,6 +475,7 @@ st.caption(
 
 # Put the most important scientific fields first.
 editor_columns = [
+    "_box_id",
     "use",
     "mz",
     "intensity",
@@ -466,6 +495,7 @@ edited=st.data_editor(
     hide_index=True,
     num_rows="fixed",
     column_config={
+        "_box_id": None,
         "use":st.column_config.CheckboxColumn(
             "Use",
             help="Include this peak in the exported MGF.",
@@ -528,12 +558,19 @@ edited=st.data_editor(
         "expected_x",
         "box_original",
     ],
-    key="peak_table_v6",
+    key=f"peak_table_{len(st.session_state.boxes)}",
 )
 
 # Force edited scientific columns back to numeric types.
 edited["mz"] = pd.to_numeric(edited["mz"], errors="coerce")
 edited["intensity"] = pd.to_numeric(edited["intensity"], errors="coerce")
+
+for _, row in edited.iterrows():
+    st.session_state.peak_manual_edits[row["_box_id"]] = {
+        "use": bool(row["use"]) if pd.notna(row["use"]) else False,
+        "mz": float(row["mz"]) if pd.notna(row["mz"]) else np.nan,
+        "intensity": float(row["intensity"]) if pd.notna(row["intensity"]) else np.nan,
+    }
 
 selected=edited[edited["use"].fillna(False)].copy()
 
@@ -550,7 +587,8 @@ st.subheader("3. Generate MGF")
 
 st.caption(
     "In standard MGF, the free-text spectrum/compound name is stored in "
-    "`TITLE=`. `NAME=` is not a standard MGF field."
+    "`TITLE=`. `NAME=` is not a standard MGF field. For MS/MS, the precursor "
+    "ion is stored as `PEPMASS=<precursor m/z>`."
 )
 
 a,b=st.columns(2)
@@ -571,8 +609,13 @@ compound_name=b.text_input(
 c,d=st.columns(2)
 
 pep=c.text_input(
-    "PEPMASS (optional)",
+    "Precursor m/z — PEPMASS (optional)",
     value="",
+    placeholder="e.g. 195.0877",
+    help=(
+        "For an MS/MS spectrum, enter the observed precursor ion m/z. "
+        "MGF writes this as PEPMASS=. This is not necessarily the neutral molecular mass."
+    ),
 )
 
 charge=d.text_input(
@@ -585,7 +628,7 @@ try:
     pepmass=float(pep) if pep.strip() else None
 except:
     pepmass=None
-    st.warning("PEPMASS is not numeric and was omitted.")
+    st.warning("Precursor m/z (PEPMASS) is not numeric and was omitted.")
 
 mgf=mgf_text(
     edited,
