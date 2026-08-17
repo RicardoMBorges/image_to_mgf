@@ -374,7 +374,7 @@ def mgf_text(df, spectrum_id, compound_name=None, pepmass=None, charge=None):
     lines.append("END IONS")
     return "\n".join(lines)+"\n"
 
-uploaded=st.file_uploader("Upload spectrum image",type=["png","jpg","jpeg","tif","tiff","bmp"])
+uploaded=st.sidebar.file_uploader("Upload spectrum image",type=["png","jpg","jpeg","tif","tiff","bmp"])
 if uploaded is None: st.stop()
 
 img=Image.open(uploaded).convert("RGB")
