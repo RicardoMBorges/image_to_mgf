@@ -28,7 +28,7 @@ for logo_name in ["LAABio.png","image_to_mgf.png"]:
         st.sidebar.image(Image.open(p), use_container_width=True)
     except Exception:
         pass
-
+st.sidebar.markdown("by Ricardo M Borges (08/2026; IPPN-UFRJ)")
 st.sidebar.divider()
 
 def gray_image(img):
