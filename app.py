@@ -22,10 +22,8 @@ DECIMAL_RE = re.compile(r"(\d{2,5}[.,]\d{2,8})")
 # -----------------------------
 STATIC_DIR = Path(__file__).parent / "static"
 
-logos = {
-    "LAABio.png": 150,
-    "image_to_mgf.png": 180,
-}
+logos = {"LAABio.png": 180,
+    "image_to_mgf.png": 180}
 
 for logo_name, logo_width in logos.items():
     p = STATIC_DIR / logo_name
