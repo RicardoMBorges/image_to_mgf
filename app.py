@@ -25,13 +25,13 @@ STATIC_DIR = Path(__file__).parent / "static"
 logos = {"LAABio.png": 180,
     "image_to_mgf.png": 180}
 
-for logo_name, logo_width in logos.items():
+for logo_name in logos.items():
     p = STATIC_DIR / logo_name
     try:
         from PIL import Image
         st.sidebar.image(
             Image.open(p),
-            width=logo_width
+            #width=logo_width
         )
     except Exception:
         pass
