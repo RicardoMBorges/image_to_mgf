@@ -25,7 +25,7 @@ for logo_name in ["LAABio.png"]: #"logo_massQL.png",
     p = STATIC_DIR / logo_name
     try:
         from PIL import Image
-        st.sidebar.image(Image.open(p), use_container_width=True)
+        st.image(Image.open(p), use_container_width=True)
     except Exception:
         pass
 
