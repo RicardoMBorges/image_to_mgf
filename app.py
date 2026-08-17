@@ -21,11 +21,20 @@ DECIMAL_RE = re.compile(r"(\d{2,5}[.,]\d{2,8})")
 # LOGOs (optional)
 # -----------------------------
 STATIC_DIR = Path(__file__).parent / "static"
-for logo_name in ["LAABio.png", "image_to_mgf.png"]: #"logo_massQL.png", 
+
+logos = {
+    "LAABio.png": 150,
+    "image_to_mgf.png": 180,
+}
+
+for logo_name, logo_width in logos.items():
     p = STATIC_DIR / logo_name
     try:
         from PIL import Image
-        st.image(Image.open(p), use_container_width=True)
+        st.sidebar.image(
+            Image.open(p),
+            width=logo_width
+        )
     except Exception:
         pass
 
