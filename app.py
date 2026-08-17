@@ -425,23 +425,38 @@ if "boxes" not in st.session_state: st.session_state.boxes=[]
 if "pending_corner" not in st.session_state: st.session_state.pending_corner=None
 if "last_click" not in st.session_state: st.session_state.last_click=None
 
+if "box_selector_epoch" not in st.session_state:
+    st.session_state.box_selector_epoch = 0
+
+if "peak_table_epoch" not in st.session_state:
+    st.session_state.peak_table_epoch = 0
+
 if "peak_manual_edits" not in st.session_state:
     st.session_state.peak_manual_edits = {}
 
 c1,c2,c3=st.columns([1,1,4])
-if c1.button("Undo last box") and st.session_state.boxes:
-    removed = st.session_state.boxes.pop()
-    st.session_state.peak_manual_edits.pop(box_id(removed), None)
-    st.session_state.pending_corner=None
-    st.session_state.last_click=None
+
+if c1.button("Undo last box"):
+    if st.session_state.boxes:
+        removed = st.session_state.boxes.pop()
+        st.session_state.peak_manual_edits.pop(box_id(removed), None)
+
+    st.session_state.pending_corner = None
+    st.session_state.last_click = None
+    st.session_state.box_selector_epoch += 1
+    st.session_state.peak_table_epoch += 1
     st.rerun()
 
 if c2.button("Clear all"):
-    st.session_state.boxes=[]
-    st.session_state.peak_manual_edits={}
-    st.session_state.pending_corner=None
-    st.session_state.last_click=None
+    st.session_state.boxes = []
+    st.session_state.peak_manual_edits = {}
+    st.session_state.pending_corner = None
+    st.session_state.last_click = None
+
+    st.session_state.box_selector_epoch += 1
+    st.session_state.peak_table_epoch += 1
     st.rerun()
+
 c3.write(f"Selected boxes: **{len(st.session_state.boxes)}**")
 
 shown=draw_boxes(
@@ -454,7 +469,7 @@ shown=draw_boxes(
 # That would resize the rendered image again and break the coordinate mapping.
 click=streamlit_image_coordinates(
     shown,
-    key="box_selector",
+    key=f"box_selector_{st.session_state.box_selector_epoch}",
     use_column_width=False,
 )
 
@@ -644,7 +659,10 @@ edited=st.data_editor(
         "expected_x",
         "box_original",
     ],
-    key=f"peak_table_{len(st.session_state.boxes)}",
+    key=(
+        f"peak_table_{st.session_state.peak_table_epoch}_"
+        f"{len(st.session_state.boxes)}"
+    ),
 )
 
 # Force edited scientific columns back to numeric types.
