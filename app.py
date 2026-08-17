@@ -17,6 +17,20 @@ st.caption("Select horizontal or vertical m/z labels with boxes, read them by OC
 
 DECIMAL_RE = re.compile(r"(\d{2,5}[.,]\d{2,8})")
 
+# -----------------------------
+# LOGOs (optional)
+# -----------------------------
+STATIC_DIR = Path(__file__).parent / "static"
+for logo_name in ["LAABio.png"]: #"logo_massQL.png", 
+    p = STATIC_DIR / logo_name
+    try:
+        from PIL import Image
+        st.sidebar.image(Image.open(p), use_container_width=True)
+    except Exception:
+        pass
+
+st.sidebar.divider()
+
 def gray_image(img):
     a = np.asarray(img.convert("RGB"))
     return cv2.cvtColor(a, cv2.COLOR_RGB2GRAY)
